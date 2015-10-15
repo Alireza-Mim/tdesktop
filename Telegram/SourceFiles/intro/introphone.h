@@ -22,7 +22,6 @@ Copyright (c) 2014-2015 John Preston, https://desktop.telegram.org
 
 #include <QtWidgets/QWidget>
 #include "gui/flatbutton.h"
-#include "gui/phoneinput.h"
 #include "gui/countryinput.h"
 #include "intro.h"
 
@@ -54,7 +53,6 @@ public:
 public slots:
 
 	void countryChanged();
-	void onSelectClose();
 	void onInputChange();
 	void onSubmitPhone(bool force = false);
 	void onCheckRequest();
@@ -77,7 +75,7 @@ private:
 	QRect textRect;
 
 	CountryInput country;
-	PhoneInput phone;
+	PhonePartInput phone;
 	CountryCodeInput code;
 
 	FlatLabel _signup;

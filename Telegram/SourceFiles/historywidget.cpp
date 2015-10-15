@@ -67,6 +67,7 @@ HistoryInner::HistoryInner(HistoryWidget *historyWidget, ScrollArea *scroll, His
     , _touchAccelerationTime(0)
     , _touchTime(0)
     , _menu(0) {
+	connect(App::wnd(), SIGNAL(imageLoaded()), this, SLOT(update()));
 
 	linkTipTimer.setSingleShot(true);
 	connect(&linkTipTimer, SIGNAL(timeout()), this, SLOT(showLinkTip()));
@@ -1649,6 +1650,7 @@ bool MessageField::hasSendText() const {
 }
 
 void MessageField::onEmojiInsert(EmojiPtr emoji) {
+	if (isHidden()) return;
 	insertEmoji(emoji, textCursor());
 }
 
@@ -1660,11 +1662,36 @@ void MessageField::dropEvent(QDropEvent *e) {
 }
 
 bool MessageField::canInsertFromMimeData(const QMimeData *source) const {
+	if (source->hasUrls()) {
+		int32 files = 0;
+		for (int32 i = 0; i < source->urls().size(); ++i) {
+			if (source->urls().at(i).isLocalFile()) {
+				++files;
+			}
+		}
+		if (files > 1) return false;
+	}
 	if (source->hasImage()) return true;
 	return FlatTextarea::canInsertFromMimeData(source);
 }
 
 void MessageField::insertFromMimeData(const QMimeData *source) {
+	if (source->hasUrls()) {
+		int32 files = 0;
+		QUrl url;
+		for (int32 i = 0; i < source->urls().size(); ++i) {
+			if (source->urls().at(i).isLocalFile()) {
+				url = source->urls().at(i);
+				++files;
+			}
+		}
+		if (files > 1) return;
+		if (files) {
+			QString file(url.toLocalFile());
+			history->uploadFile(file);
+			return;
+		}
+	}
 	if (source->hasImage()) {
 		QImage img = qvariant_cast<QImage>(source->imageData());
 		if (!img.isNull()) {
@@ -1695,8 +1722,8 @@ _clear(this, lang(lng_profile_delete_conversation)) {
 
 void ReportSpamPanel::resizeEvent(QResizeEvent *e) {
 	_report.resize(width() - (_hide.width() + st::reportSpamSeparator) * 2, _report.height());
-	_report.moveToLeft(_hide.width() + st::reportSpamSeparator, 0, width());
-	_hide.moveToRight(0, 0, width());
+	_report.moveToLeft(_hide.width() + st::reportSpamSeparator, 0);
+	_hide.moveToRight(0, 0);
 	_clear.move((width() - _clear.width()) / 2, height() - _clear.height() - ((height() - st::msgFont->height - _clear.height()) / 2));
 }
 
@@ -2037,7 +2064,7 @@ HistoryHider::HistoryHider(MainWidget *parent, bool forwardSelected) : QWidget(p
 , _forwardSelected(forwardSelected)
 , _sendPath(false)
 , _send(this, lang(lng_forward_send), st::defaultBoxButton)
-, _cancel(this, lang(lng_box_cancel), st::cancelBoxButton)
+, _cancel(this, lang(lng_cancel), st::cancelBoxButton)
 , offered(0)
 , a_opacity(0, 1)
 , hiding(false)
@@ -2053,7 +2080,7 @@ HistoryHider::HistoryHider(MainWidget *parent, UserData *sharedContact) : QWidge
 , _forwardSelected(false)
 , _sendPath(false)
 , _send(this, lang(lng_forward_send), st::defaultBoxButton)
-, _cancel(this, lang(lng_box_cancel), st::cancelBoxButton)
+, _cancel(this, lang(lng_cancel), st::cancelBoxButton)
 , offered(0)
 , a_opacity(0, 1)
 , hiding(false)
@@ -2069,7 +2096,7 @@ HistoryHider::HistoryHider(MainWidget *parent) : QWidget(parent)
 , _forwardSelected(false)
 , _sendPath(true)
 , _send(this, lang(lng_forward_send), st::defaultBoxButton)
-, _cancel(this, lang(lng_box_cancel), st::cancelBoxButton)
+, _cancel(this, lang(lng_cancel), st::cancelBoxButton)
 , offered(0)
 , a_opacity(0, 1)
 , hiding(false)
@@ -2116,7 +2143,7 @@ void HistoryHider::paintEvent(QPaintEvent *e) {
 	Painter p(this);
 	if (!hiding || !cacheForAnim.isNull() || !offered) {
 		p.setOpacity(a_opacity.current() * st::layerAlpha);
-		p.fillRect(rect(), st::layerBG->b);
+		p.fillRect(rect(), st::layerBg->b);
 		p.setOpacity(a_opacity.current());
 	}
 	if (cacheForAnim.isNull() || !offered) {
@@ -2125,7 +2152,7 @@ void HistoryHider::paintEvent(QPaintEvent *e) {
 			shadow.paint(p, box, st::boxShadowShift);
 
 			// fill bg
-			p.fillRect(box, st::boxBG->b);
+			p.fillRect(box, st::boxBg->b);
 
 			p.setPen(st::black->p);
 			toText.drawElided(p, box.left() + st::boxPadding.left(), box.top() + st::boxPadding.top(), toTextWidth + 2);
@@ -2217,8 +2244,8 @@ void HistoryHider::resizeEvent(QResizeEvent *e) {
 		_cancel.hide();
 	}
 	box = QRect((width() - w) / 2, (height() - h) / 2, w, h);
-	_send.moveToRight(width() - (box.x() + box.width()) + st::boxButtonPadding.right(), box.y() + h - st::boxButtonPadding.bottom() - _send.height(), width());
-	_cancel.moveToRight(width() - (box.x() + box.width()) + st::boxButtonPadding.right() + _send.width() + st::boxButtonPadding.left(), _send.y(), width());
+	_send.moveToRight(width() - (box.x() + box.width()) + st::boxButtonPadding.right(), box.y() + h - st::boxButtonPadding.bottom() - _send.height());
+	_cancel.moveToRight(width() - (box.x() + box.width()) + st::boxButtonPadding.right() + _send.width() + st::boxButtonPadding.left(), _send.y());
 }
 
 bool HistoryHider::offerPeer(PeerId peer) {
@@ -2255,8 +2282,8 @@ bool HistoryHider::offerPeer(PeerId peer) {
 
 	toText.setText(st::boxTextFont, phrase, _textNameOptions);
 	toTextWidth = toText.maxWidth();
-	if (toTextWidth > box.width() - st::boxPadding.left() - st::boxPadding.right()) {
-		toTextWidth = box.width() - st::boxPadding.left() - st::boxPadding.right();
+	if (toTextWidth > box.width() - st::boxPadding.left() - st::boxButtonPadding.right()) {
+		toTextWidth = box.width() - st::boxPadding.left() - st::boxButtonPadding.right();
 	}
 	
 	resizeEvent(0);
@@ -2632,7 +2659,9 @@ void HistoryWidget::activate() {
 }
 
 void HistoryWidget::setInnerFocus() {
-	if (_list) {
+	if (_scroll.isHidden()) {
+		setFocus();
+	} else if (_list) {
 		if (_selCount || (_list && _list->wasSelectedText()) || _recording || isBotStart() || isBlocked() || !_canSendMessages) {
 			_list->setFocus();
 		} else {
@@ -2762,7 +2791,7 @@ void HistoryWidget::stickersGot(const MTPmessages_AllStickers &stickers) {
 }
 
 bool HistoryWidget::stickersFailed(const RPCError &error) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	LOG(("App Fail: Failed to get stickers!"));
 
@@ -3034,7 +3063,7 @@ void HistoryWidget::showPeerHistory(const PeerId &peerId, MsgId showAtMsgId) {
 		doneShow();
 	}
 
-	if (App::wnd()) App::wnd()->setInnerFocus();
+	if (App::wnd()) QTimer::singleShot(0, App::wnd(), SLOT(setInnerFocus()));
 
 	App::main()->dlgUpdated(wasHistory, wasMsgId);
 	emit historyShown(_history, _showAtMsgId);
@@ -3418,7 +3447,7 @@ void HistoryWidget::historyCleared(History *history) {
 }
 
 bool HistoryWidget::messagesFailed(const RPCError &error, mtpRequestId requestId) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	if (error.type() == qstr("CHANNEL_PRIVATE")) {
 		App::main()->showDialogs();
@@ -3734,17 +3763,6 @@ void HistoryWidget::onVisibleChanged() {
 	QTimer::singleShot(0, this, SLOT(onListScroll()));
 }
 
-QString HistoryWidget::prepareMessage(QString result) {
-	result = result.replace('\t', qsl(" "));
-
-	result = result.replace(" --", QString::fromUtf8(" \xe2\x80\x94"));
-	result = result.replace("-- ", QString::fromUtf8("\xe2\x80\x94 "));
-	result = result.replace("<<", QString::fromUtf8("\xc2\xab"));
-	result = result.replace(">>", QString::fromUtf8("\xc2\xbb"));
-
-	return (cReplaceEmojis() ? replaceEmojis(result) : result).trimmed();
-}
-
 void HistoryWidget::onHistoryToEnd() {
 	if (_replyReturn) {
 		showPeerHistory(_peer->id, _replyReturn->id);
@@ -3773,7 +3791,7 @@ void HistoryWidget::onSend(bool ctrlShiftEnter, MsgId replyTo) {
 	if (!_history) return;
 
 	bool lastKeyboardUsed = lastForceReplyReplied(FullMsgId(_channel, replyTo));
-	QString text = prepareMessage(_field.getLastText());
+	QString text = prepareSentText(_field.getLastText());
 	if (!text.isEmpty()) {
 		App::main()->readServerHistory(_history, false);
 		fastShowAtEnd(_history);
@@ -3820,7 +3838,7 @@ void HistoryWidget::unblockDone(PeerData *peer, const MTPBool &result, mtpReques
 }
 
 bool HistoryWidget::unblockFail(const RPCError &error, mtpRequestId req) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	if (_unblockRequest == req) _unblockRequest = 0;
 	return false;
@@ -3874,7 +3892,7 @@ void HistoryWidget::joinDone(const MTPUpdates &result, mtpRequestId req) {
 }
 
 bool HistoryWidget::joinFail(const RPCError &error, mtpRequestId req) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	if (_unblockRequest == req) _unblockRequest = 0;
 	if (error.type() == qstr("CHANNEL_PRIVATE")) {
@@ -4108,6 +4126,8 @@ void HistoryWidget::onPhotoSelect() {
 	if (filedialogGetOpenFiles(files, file, lang(lng_choose_images), filter)) {
 		if (!file.isEmpty()) {
 			uploadMedia(file, ToPreparePhoto);
+		//} else if (files.size() == 1) {
+		//	uploadWithConfirm(files.at(0), false, true);
 		} else if (!files.isEmpty()) {
 			uploadMedias(files, ToPreparePhoto);
 		}
@@ -4136,6 +4156,8 @@ void HistoryWidget::onDocumentSelect() {
 	if (filedialogGetOpenFiles(files, file, lang(lng_choose_images), filter)) {
 		if (!file.isEmpty()) {
 			uploadMedia(file, ToPrepareDocument);
+		//} else if (files.size() == 1) {
+		//	uploadWithConfirm(files.at(0), false, false);
 		} else if (!files.isEmpty()) {
 			uploadMedias(files, ToPrepareDocument);
 		}
@@ -4435,17 +4457,22 @@ void HistoryWidget::dropEvent(QDropEvent *e) {
 void HistoryWidget::onPhotoDrop(const QMimeData *data) {
 	if (!_history) return;
 
-	if (data->hasImage()) {
-		QImage image = qvariant_cast<QImage>(data->imageData());
-		if (image.isNull()) return;
+	QStringList files = getMediasFromMime(data);
+	if (files.isEmpty()) {
+		if (data->hasImage()) {
+			QImage image = qvariant_cast<QImage>(data->imageData());
+			if (image.isNull()) return;
 
-		uploadImage(image, false, data->text());
-	} else {
-		QStringList files = getMediasFromMime(data);
-		if (files.isEmpty()) return;
-
-		uploadMedias(files, ToPreparePhoto);
+			uploadImage(image, false, data->text());
+		}
+		return;
 	}
+
+	//if (files.size() == 1) {
+	//	uploadWithConfirm(files.at(0), false, true);
+	//} else {
+		uploadMedias(files, ToPreparePhoto);
+	//}
 }
 
 void HistoryWidget::onDocumentDrop(const QMimeData *data) {
@@ -4454,21 +4481,30 @@ void HistoryWidget::onDocumentDrop(const QMimeData *data) {
 	QStringList files = getMediasFromMime(data);
 	if (files.isEmpty()) return;
 
-	uploadMedias(files, ToPrepareDocument);
+	//if (files.size() == 1) {
+	//	uploadWithConfirm(files.at(0), false, false);
+	//} else {
+		uploadMedias(files, ToPrepareDocument);
+	//}
 }
 
 void HistoryWidget::onFilesDrop(const QMimeData *data) {
-	if (data->hasImage()) {
-		QImage image = qvariant_cast<QImage>(data->imageData());
-		if (image.isNull()) return;
+	QStringList files = getMediasFromMime(data);
+	if (files.isEmpty()) {
+		if (data->hasImage()) {
+			QImage image = qvariant_cast<QImage>(data->imageData());
+			if (image.isNull()) return;
 
-		uploadImage(image, false, data->text());
-	} else {
-		QStringList files = getMediasFromMime(data);
-		if (files.isEmpty()) return;
-
-		uploadMedias(files, ToPrepareAuto);
+			uploadImage(image, false, data->text());
+		}
+		return;
 	}
+
+	//if (files.size() == 1) {
+	//	uploadWithConfirm(files.at(0), false, true);
+	//} else {
+		uploadMedias(files, ToPrepareAuto);
+	//}
 }
 
 void HistoryWidget::onKbToggle(bool manual) {
@@ -4878,7 +4914,7 @@ void HistoryWidget::confirmSendImage(const ReadyLocalMedia &img) {
 		flags |= MTPDmessage::flag_from_id;
 	}
 	if (img.type == ToPreparePhoto) {
-		h->addNewMessage(MTP_message(MTP_int(flags), MTP_int(newId.msg), MTP_int(fromChannelName ? 0 : MTP::authedId()), peerToMTP(img.peer), MTPPeer(), MTPint(), MTP_int(img.replyTo), MTP_int(unixtime()), MTP_string(""), MTP_messageMediaPhoto(img.photo, MTP_string("")), MTPnullMarkup, MTPnullEntities, MTP_int(1)), NewMessageUnread);
+		h->addNewMessage(MTP_message(MTP_int(flags), MTP_int(newId.msg), MTP_int(fromChannelName ? 0 : MTP::authedId()), peerToMTP(img.peer), MTPPeer(), MTPint(), MTP_int(img.replyTo), MTP_int(unixtime()), MTP_string(""), MTP_messageMediaPhoto(img.photo, MTP_string(img.caption)), MTPnullMarkup, MTPnullEntities, MTP_int(1)), NewMessageUnread);
 	} else if (img.type == ToPrepareDocument) {
 		h->addNewMessage(MTP_message(MTP_int(flags), MTP_int(newId.msg), MTP_int(fromChannelName ? 0 : MTP::authedId()), peerToMTP(img.peer), MTPPeer(), MTPint(), MTP_int(img.replyTo), MTP_int(unixtime()), MTP_string(""), MTP_messageMediaDocument(img.document), MTPnullMarkup, MTPnullEntities, MTP_int(1)), NewMessageUnread);
 	} else if (img.type == ToPrepareAudio) {
@@ -4919,7 +4955,8 @@ void HistoryWidget::onPhotoUploaded(const FullMsgId &newId, const MTPInputFile &
 		if (fromChannelName) {
 			sendFlags |= MTPmessages_SendMessage_flag_broadcast;
 		}
-		hist->sendRequestId = MTP::send(MTPmessages_SendMedia(MTP_int(sendFlags), item->history()->peer->input, MTP_int(replyTo), MTP_inputMediaUploadedPhoto(file, MTP_string("")), MTP_long(randomId), MTPnullMarkup), App::main()->rpcDone(&MainWidget::sentUpdatesReceived), App::main()->rpcFail(&MainWidget::sendPhotoFail, randomId), 0, 0, hist->sendRequestId);
+		QString caption = item->getMedia() ? item->getMedia()->getCaption() : QString();
+		hist->sendRequestId = MTP::send(MTPmessages_SendMedia(MTP_int(sendFlags), item->history()->peer->input, MTP_int(replyTo), MTP_inputMediaUploadedPhoto(file, MTP_string(caption)), MTP_long(randomId), MTPnullMarkup), App::main()->rpcDone(&MainWidget::sentUpdatesReceived), App::main()->rpcFail(&MainWidget::sendPhotoFail, randomId), 0, 0, hist->sendRequestId);
 	}
 }
 
@@ -5119,7 +5156,7 @@ void HistoryWidget::reportSpamDone(PeerData *peer, const MTPBool &result, mtpReq
 }
 
 bool HistoryWidget::reportSpamFail(const RPCError &error, mtpRequestId req) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	if (req == _reportSpamRequest) {
 		_reportSpamRequest = 0;
@@ -5614,7 +5651,7 @@ void HistoryWidget::onFieldTabbed() {
 }
 
 void HistoryWidget::onStickerSend(DocumentData *sticker) {
-	if (!_history || !sticker) return;
+	if (!_history || !sticker || !canSendMessages(_peer)) return;
 
 	App::main()->readServerHistory(_history, false);
 	fastShowAtEnd(_history);

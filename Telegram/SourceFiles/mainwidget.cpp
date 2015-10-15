@@ -89,8 +89,10 @@ void TopBarWidget::onEdit() {
 	if (p) {
 		if (p->isChannel()) {
 			App::wnd()->showLayer(new EditChannelBox(p->asChannel()));
-		} else {
-			App::wnd()->showLayer(new AddContactBox(p));
+		} else if (p->isChat()) {
+			App::wnd()->showLayer(new EditNameTitleBox(p));
+		} else if (p->isUser()) {
+			App::wnd()->showLayer(new AddContactBox(p->asUser()));
 		}
 	}
 }
@@ -771,7 +773,7 @@ DragState MainWidget::getDragState(const QMimeData *mime) {
 }
 
 bool MainWidget::leaveChatFailed(PeerData *peer, const RPCError &error) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	if (error.type() == qstr("USER_NOT_PARTICIPANT") || error.type() == qstr("CHAT_ID_INVALID")) { // left this chat already
 		deleteConversation(peer);
@@ -907,7 +909,7 @@ void MainWidget::kickParticipant(ChatData *chat, UserData *user) {
 }
 
 bool MainWidget::kickParticipantFail(ChatData *chat, const RPCError &error) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	error.type();
 	return false;
@@ -1225,7 +1227,7 @@ void MainWidget::sendMessage(History *hist, const QString &text, MsgId replyTo, 
 	int32 fixInScrollMsgTop = 0;
 	hist->getReadyFor(ShowAtTheEndMsgId, fixInScrollMsgId, fixInScrollMsgTop);
 	readServerHistory(hist, false);
-	sendPreparedText(hist, history.prepareMessage(text), replyTo, broadcast);
+	sendPreparedText(hist, prepareSentText(text), replyTo, broadcast);
 }
 
 void MainWidget::saveRecentHashtags(const QString &text) {
@@ -1479,7 +1481,7 @@ void MainWidget::itemResized(HistoryItem *row, bool scrollToIt) {
 }
 
 bool MainWidget::overviewFailed(PeerData *peer, const RPCError &error, mtpRequestId req) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	MediaOverviewType type = OverviewCount;
 	for (int32 i = 0; i < OverviewCount; ++i) {
@@ -1641,7 +1643,7 @@ void MainWidget::partWasRead(PeerData *peer, const MTPmessages_AffectedHistory &
 }
 
 bool MainWidget::readRequestFail(PeerData *peer, const RPCError &error) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	readRequestDone(peer);
 	return false;
@@ -2086,7 +2088,7 @@ void MainWidget::serviceHistoryDone(const MTPmessages_Messages &msgs) {
 }
 
 bool MainWidget::serviceHistoryFail(const RPCError &error) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	App::wnd()->showDelayedServiceMsgs();
 	return false;
@@ -2202,8 +2204,10 @@ void MainWidget::setInnerFocus() {
 		} else {
 			dialogsActivate();
 		}
+	} else if (overview) {
+		overview->activate();
 	} else if (profile) {
-		profile->setFocus();
+		profile->activate();
 	} else {
 		history.setInnerFocus();
 	}
@@ -2374,6 +2378,7 @@ void MainWidget::showPeerHistory(quint64 peerId, qint32 showAtMsgId, bool back) 
 			overview = 0;
 		}
 		clearBotStartToken(_peerInStack);
+		dlgUpdated();
 		_peerInStack = 0;
 		_msgIdInStack = 0;
 		_stack.clear();
@@ -2499,8 +2504,10 @@ void MainWidget::showMediaOverview(PeerData *peer, MediaOverviewType type, bool 
 		} else if (profile) {
 			_stack.push_back(new StackItemProfile(profile->peer(), profile->lastScrollTop()));
 		} else if (history.peer()) {
+			dlgUpdated();
 			_peerInStack = history.peer();
 			_msgIdInStack = history.msgId();
+			dlgUpdated();
 			_stack.push_back(new StackItemHistory(_peerInStack, _msgIdInStack, history.replyReturns(), history.kbWasHidden()));
 		}
 	}
@@ -2553,8 +2560,10 @@ void MainWidget::showPeerProfile(PeerData *peer, bool back, int32 lastScrollTop)
 		} else if (profile) {
 			_stack.push_back(new StackItemProfile(profile->peer(), profile->lastScrollTop()));
 		} else {
+			dlgUpdated();
 			_peerInStack = history.peer();
 			_msgIdInStack = history.msgId();
+			dlgUpdated();
 			_stack.push_back(new StackItemHistory(_peerInStack, _msgIdInStack, history.replyReturns(), history.kbWasHidden()));
 		}
 	}
@@ -2595,12 +2604,14 @@ void MainWidget::showBackFromStack() {
 	StackItem *item = _stack.back();
 	_stack.pop_back();
 	if (item->type() == HistoryStackItem) {
+		dlgUpdated();
 		_peerInStack = 0;
 		_msgIdInStack = 0;
 		for (int32 i = _stack.size(); i > 0;) {
 			if (_stack.at(--i)->type() == HistoryStackItem) {
 				_peerInStack = static_cast<StackItemHistory*>(_stack.at(i))->peer;
 				_msgIdInStack = static_cast<StackItemHistory*>(_stack.at(i))->msgId;
+				dlgUpdated();
 				break;
 			}
 		}
@@ -2634,8 +2645,11 @@ QRect MainWidget::historyRect() const {
 }
 
 void MainWidget::dlgUpdated(DialogRow *row) {
-	if (!row) return;
-	dialogs.dlgUpdated(row);
+	if (row) {
+		dialogs.dlgUpdated(row);
+	} else if (_peerInStack) {
+		dialogs.dlgUpdated(App::history(_peerInStack->id), _msgIdInStack);
+	}
 }
 
 void MainWidget::dlgUpdated(History *row, MsgId msgId) {
@@ -3077,8 +3091,11 @@ void MainWidget::gotChannelDifference(ChannelData *channel, const MTPupdates_Cha
 			switch (msg.type()) {
 			case mtpc_message: {
 				const MTPDmessage &d(msg.c_message());
-				msgsIds.insert((uint64(uint32(d.vid.v)) << 32) | uint64(i), i + 1);
-				App::checkEntitiesAndViewsUpdate(d); // new message, index my forwarded messages to links overview
+				if (App::checkEntitiesAndViewsUpdate(d)) { // new message, index my forwarded messages to links overview, already in blocks
+					LOG(("Skipping message, because it is already in blocks!"));
+				} else {
+					msgsIds.insert((uint64(uint32(d.vid.v)) << 32) | uint64(i), i + 1);
+				}
 			} break;
 			case mtpc_messageEmpty: msgsIds.insert((uint64(uint32(msg.c_messageEmpty().vid.v)) << 32) | uint64(i), i + 1); break;
 			case mtpc_messageService: msgsIds.insert((uint64(uint32(msg.c_messageService().vid.v)) << 32) | uint64(i), i + 1); break;
@@ -3612,7 +3629,7 @@ void MainWidget::usernameResolveDone(QPair<bool, QString> toProfileStartToken, c
 }
 
 bool MainWidget::usernameResolveFail(QString name, const RPCError &error) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	if (error.code() == 400) {
 		App::wnd()->showLayer(new InformBox(lng_username_not_found(lt_user, name)));
@@ -3649,7 +3666,7 @@ void MainWidget::inviteCheckDone(QString hash, const MTPChatInvite &invite) {
 }
 
 bool MainWidget::inviteCheckFail(const RPCError &error) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	if (error.code() == 400) {
 		App::wnd()->showLayer(new InformBox(lang(lng_group_invite_bad_link)));
@@ -3687,7 +3704,7 @@ void MainWidget::inviteImportDone(const MTPUpdates &updates) {
 }
 
 bool MainWidget::inviteImportFail(const RPCError &error) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	if (error.code() == 400) {
 		App::wnd()->showLayer(new InformBox(lang(error.type() == qsl("USERS_TOO_MUCH") ? lng_group_invite_no_room : lng_group_invite_bad_link)));
@@ -3792,7 +3809,7 @@ void MainWidget::gotNotifySetting(MTPInputNotifyPeer peer, const MTPPeerNotifySe
 }
 
 bool MainWidget::failNotifySetting(MTPInputNotifyPeer peer, const RPCError &error) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	gotNotifySetting(peer, MTP_peerNotifySettingsEmpty());
 	return true;
@@ -4155,7 +4172,7 @@ void MainWidget::feedUpdates(const MTPUpdates &updates, uint64 randomId) {
 						}
 					}
 
-					item->updateMedia(d.has_media() ? (&d.vmedia) : 0);
+					item->updateMedia(d.has_media() ? (&d.vmedia) : 0, true);
 				}
 			}
 		}
@@ -4188,14 +4205,19 @@ void MainWidget::feedUpdate(const MTPUpdate &update) {
 		}
 
 		// update before applying skipped
+		bool needToAdd = true;
 		if (d.vmessage.type() == mtpc_message) { // index forwarded messages to links overview
-			App::checkEntitiesAndViewsUpdate(d.vmessage.c_message());
+			if (App::checkEntitiesAndViewsUpdate(d.vmessage.c_message())) { // already in blocks
+				LOG(("Skipping message, because it is already in blocks!"));
+				needToAdd = false;
+			}
 		}
-		HistoryItem *item = App::histories().addNewMessage(d.vmessage, NewMessageUnread);
-		if (item) {
-			history.peerMessagesUpdated(item->history()->peer->id);
+		if (needToAdd) {
+			HistoryItem *item = App::histories().addNewMessage(d.vmessage, NewMessageUnread);
+			if (item) {
+				history.peerMessagesUpdated(item->history()->peer->id);
+			}
 		}
-
 		ptsApplySkippedUpdates();
 	} break;
 
@@ -4291,8 +4313,11 @@ void MainWidget::feedUpdate(const MTPUpdate &update) {
 			history.update();
 		}
 		if (History *h = App::historyLoaded(id)) {
-			if (h->lastMsg->out() && h->lastMsg->id <= d.vmax_id.v) {
+			if (h->lastMsg && h->lastMsg->out() && h->lastMsg->id <= d.vmax_id.v) {
 				dlgUpdated(h, h->lastMsg->id);
+			}
+			if (!h->dialogs.isEmpty()) {
+				dlgUpdated(h->dialogs[0]);
 			}
 		}
 
@@ -4545,14 +4570,19 @@ void MainWidget::feedUpdate(const MTPUpdate &update) {
 		}
 
 		// update before applying skipped
+		bool needToAdd = true;
 		if (d.vmessage.type() == mtpc_message) { // index forwarded messages to links overview
-			App::checkEntitiesAndViewsUpdate(d.vmessage.c_message());
+			if (App::checkEntitiesAndViewsUpdate(d.vmessage.c_message())) { // already in blocks
+				LOG(("Skipping message, because it is already in blocks!"));
+				needToAdd = false;
+			}
 		}
-		HistoryItem *item = App::histories().addNewMessage(d.vmessage, NewMessageUnread);
-		if (item) {
-			history.peerMessagesUpdated(item->history()->peer->id);
+		if (needToAdd) {
+			HistoryItem *item = App::histories().addNewMessage(d.vmessage, NewMessageUnread);
+			if (item) {
+				history.peerMessagesUpdated(item->history()->peer->id);
+			}
 		}
-
 		if (channel && !_handlingChannelDifference) {
 			channel->ptsApplySkippedUpdates();
 		}

@@ -20,9 +20,9 @@ Copyright (c) 2014-2015 John Preston, https://desktop.telegram.org
 */
 #pragma once
 
-static const int32 AppVersion = 9003;
-static const wchar_t *AppVersionStr = L"0.9.3";
-static const bool DevVersion = true;
+static const int32 AppVersion = 9006;
+static const wchar_t *AppVersionStr = L"0.9.6";
+static const bool DevVersion = false;
 
 static const wchar_t *AppNameOld = L"Telegram Win (Unofficial)";
 static const wchar_t *AppName = L"Telegram Desktop";
@@ -66,6 +66,7 @@ enum {
 
 	MaxSelectedItems = 100,
 
+	MaxPhoneCodeLength = 4, // max length of country phone code
 	MaxPhoneTailLength = 18, // rest of the phone number, without country code (seen 12 at least)
 
 	MaxScrollSpeed = 37, // 37px per 15ms while select-by-drag
@@ -127,6 +128,8 @@ enum {
 	UsernameCheckTimeout = 200,
 
 	MaxChannelDescription = 120,
+	MaxGroupChannelTitle = 255,
+	MaxPhotoCaption = 140,
 
 	MaxMessageSize = 4096,
 	MaxHttpRedirects = 5, // when getting external data/images

@@ -34,6 +34,7 @@ Copyright (c) 2014-2015 John Preston, https://desktop.telegram.org
 #include "settingswidget.h"
 #include "boxes/confirmbox.h"
 #include "boxes/contactsbox.h"
+#include "boxes/addcontactbox.h"
 
 #include "mediaview.h"
 #include "localstorage.h"
@@ -357,7 +358,7 @@ NotifyWindow::~NotifyWindow() {
 }
 
 Window::Window(QWidget *parent) : PsMainWindow(parent), _serviceHistoryRequest(0), title(0),
-_passcode(0), intro(0), main(0), settings(0), layerBG(0), _isActive(false), _topWidget(0),
+_passcode(0), intro(0), main(0), settings(0), layerBg(0), _isActive(false),
 _connecting(0), _clearManager(0), dragging(false), _inactivePress(false), _shouldLockAt(0), _mediaView(0) {
 
 	icon16 = icon256.scaledToWidth(16, Qt::SmoothTransformation);
@@ -389,7 +390,6 @@ _connecting(0), _clearManager(0), dragging(false), _inactivePress(false), _shoul
 
 	connect(&_autoLockTimer, SIGNAL(timeout()), this, SLOT(checkAutoLock()));
 
-	connect(this, SIGNAL(imageLoaded()), this, SLOT(update()));
 	connect(this, SIGNAL(imageLoaded()), this, SLOT(notifyUpdateAllPhotos()));
 
 	setAttribute(Qt::WA_NoSystemBackground);
@@ -431,7 +431,7 @@ void Window::init() {
 
 	App::app()->installEventFilter(this);
 	connect(windowHandle(), SIGNAL(windowStateChanged(Qt::WindowState)), this, SLOT(stateChanged(Qt::WindowState)));
-	connect(windowHandle(), SIGNAL(activeChanged()), this, SLOT(checkHistoryActivation()));
+	connect(windowHandle(), SIGNAL(activeChanged()), this, SLOT(checkHistoryActivation()), Qt::QueuedConnection);
 
 	QPalette p(palette());
 	p.setColor(QPalette::Window, st::wndBG->c);
@@ -781,17 +781,17 @@ void Window::showDocument(DocumentData *doc, HistoryItem *item) {
 void Window::showLayer(LayeredWidget *w, bool forceFast) {
 	bool fast = forceFast || layerShown();
 	hideLayer(true);
-	layerBG = new BackgroundWidget(this, w);
+	layerBg = new BackgroundWidget(this, w);
 	if (fast) {
-		layerBG->showFast();
+		layerBg->showFast();
 	}
 }
 
 void Window::replaceLayer(LayeredWidget *w) {
-	if (layerBG) {
-		layerBG->replaceInner(w);
+	if (layerBg) {
+		layerBg->replaceInner(w);
 	} else {
-		layerBG = new BackgroundWidget(this, w);
+		layerBg = new BackgroundWidget(this, w);
 	}
 }
 
@@ -820,26 +820,26 @@ void Window::hideConnecting() {
 }
 
 void Window::hideLayer(bool fast) {
-	if (layerBG) {
-		layerBG->onClose();
+	if (layerBg) {
+		layerBg->onClose();
 		if (fast) {
-			layerBG->hide();
-			layerBG->deleteLater();
-			layerBG = 0;
+			layerBg->hide();
+			layerBg->deleteLater();
+			layerBg = 0;
 		}
 	}
 	hideMediaview();
 }
 
 bool Window::hideInnerLayer() {
-	if (layerBG) {
-		return layerBG->onInnerClose();
+	if (layerBg) {
+		return layerBg->onInnerClose();
 	}
 	return true;
 }
 
 bool Window::layerShown() {
-	return !!layerBG || !!_topWidget;
+	return !!layerBg;
 }
 
 bool Window::historyIsActive() const {
@@ -854,11 +854,11 @@ void Window::checkHistoryActivation() {
 }
 
 void Window::layerHidden() {
-	if (layerBG) {
-		layerBG->hide();
-		layerBG->deleteLater();
+	if (layerBg) {
+		layerBg->hide();
+		layerBg->deleteLater();
 	}
-	layerBG = 0;
+	layerBg = 0;
 	hideMediaview();
 	setInnerFocus();
 }
@@ -876,13 +876,13 @@ void Window::hideMediaview() {
 
 bool Window::contentOverlapped(const QRect &globalRect) {
 	if (main && main->contentOverlapped(globalRect)) return true;
-	if (layerBG && layerBG->contentOverlapped(globalRect)) return true;
+	if (layerBg && layerBg->contentOverlapped(globalRect)) return true;
 	return false;
 }
 
 void Window::setInnerFocus() {
-	if (layerBG && layerBG->canSetFocus()) {
-		layerBG->setInnerFocus();
+	if (layerBg && layerBg->canSetFocus()) {
+		layerBg->setInnerFocus();
 	} else if (_passcode) {
 		_passcode->setInnerFocus();
 	} else if (settings) {
@@ -1029,13 +1029,12 @@ void Window::updateTrayMenu(bool force) {
     if (!trayIconMenu || (cPlatform() == dbipWindows && !force)) return;
 
     bool active = isActive(false);
+    QString notificationItem = lang(cDesktopNotify()
+        ? lng_disable_notifications_from_tray : lng_enable_notifications_from_tray);
+
+    QAction *first = trayIconMenu->actions().at(0);
+    first->setText(notificationItem);
     if (cPlatform() == dbipWindows || cPlatform() == dbipMac) {
-		QString notificationItem = lang(cDesktopNotify() 
-			? lng_disable_notifications_from_tray : lng_enable_notifications_from_tray);
-
-        QAction *first = trayIconMenu->actions().at(0);
-		first->setText(notificationItem);
-
         QAction *second = trayIconMenu->actions().at(1);
         second->setText(lang(active ? lng_minimize_to_tray : lng_open_from_tray));
         disconnect(second, SIGNAL(triggered(bool)), 0, 0);
@@ -1074,7 +1073,7 @@ void Window::onShowNewChannel() {
 void Window::onLogout() {
 	if (isHidden()) showFromTray();
 
-	ConfirmBox *box = new ConfirmBox(lang(lng_sure_logout), lang(lng_box_logout), st::attentionBoxButton);
+	ConfirmBox *box = new ConfirmBox(lang(lng_sure_logout), lang(lng_settings_logout), st::attentionBoxButton);
 	connect(box, SIGNAL(confirmed()), this, SLOT(onLogoutSure()));
 	App::wnd()->showLayer(box);
 }
@@ -1127,32 +1126,21 @@ void Window::noMain(MainWidget *was) {
 }
 
 void Window::noBox(BackgroundWidget *was) {
-	if (was == layerBG) {
-		layerBG = 0;
+	if (was == layerBg) {
+		layerBg = 0;
 	}
 }
 
 void Window::layerFinishedHide(BackgroundWidget *was) {
-	if (was == layerBG) {
+	if (was == layerBg) {
 		QTimer::singleShot(0, this, SLOT(layerHidden()));
 	}
 }
 
 void Window::fixOrder() {
 	title->raise();
-	if (layerBG) layerBG->raise();
-	if (_topWidget) _topWidget->raise();
+	if (layerBg) layerBg->raise();
 	if (_connecting) _connecting->raise();
-}
-
-void Window::topWidget(QWidget *w) {
-	_topWidget = w;
-}
-
-void Window::noTopWidget(QWidget *w) {
-	if (_topWidget == w) {
-		_topWidget = 0;
-	}
 }
 
 void Window::showFromTray(QSystemTrayIcon::ActivationReason reason) {
@@ -1182,11 +1170,17 @@ void Window::toggleDisplayNotifyFromTray() {
 	cSetDesktopNotify(!cDesktopNotify());
 	if (settings) {
 		settings->updateDisplayNotify();
+	} else {
+		if (!cDesktopNotify()) {
+			notifyClear();
+		}
+		Local::writeUserSettings();
+		updateTrayMenu();
 	}
 }
 
 void Window::closeEvent(QCloseEvent *e) {
-	if (MTP::authedId() && minimizeToTray()) {
+	if (MTP::authedId() && !App::app()->isSavingSession() && minimizeToTray()) {
 		e->ignore();
 	} else {
 		App::quit();
@@ -1206,7 +1200,7 @@ void Window::resizeEvent(QResizeEvent *e) {
 		updateWideMode();
 	}
 	title->setGeometry(0, 0, width(), st::titleHeight);
-	if (layerBG) layerBG->resize(width(), height());
+	if (layerBg) layerBg->resize(width(), height());
 	if (_connecting) _connecting->setGeometry(0, height() - _connecting->height(), _connecting->width(), _connecting->height());
 	emit resized(QSize(width(), height() - st::titleHeight));
 }
@@ -1216,7 +1210,7 @@ void Window::updateWideMode() {
 	if (main) main->updateWideMode();
 	if (settings) settings->updateWideMode();
 	if (intro) intro->updateWideMode();
-	if (layerBG) layerBG->updateWideMode();
+	if (layerBg) layerBg->updateWideMode();
 }
 
 bool Window::needBackButton() {

@@ -30,7 +30,6 @@ public:
 	PasscodeBox(bool turningOff = false);
 	PasscodeBox(const QByteArray &newSalt, const QByteArray &curSalt, bool hasRecovery, const QString &hint, bool turningOff = false);
 	void init();
-	void keyPressEvent(QKeyEvent *e);
 	void paintEvent(QPaintEvent *e);
 	void resizeEvent(QResizeEvent *e);
 
@@ -45,6 +44,7 @@ public slots:
 	void onBoxDestroyed(QObject *obj);
 	void onRecoverByEmail();
 	void onRecoverExpired();
+	void onSubmit();
 
 signals:
 
@@ -73,15 +73,15 @@ private:
 
 	QByteArray _newSalt, _curSalt;
 	bool _hasRecovery, _skipEmailWarning;
-	QString _hint;
 
 	int32 _aboutHeight;
 
 	QString _boxTitle;
 	Text _about, _hintText;
 
-	FlatButton _saveButton, _cancelButton;
-	FlatInput _oldPasscode, _newPasscode, _reenterPasscode, _passwordHint, _recoverEmail;
+	BoxButton _saveButton, _cancelButton;
+	PasswordField _oldPasscode, _newPasscode, _reenterPasscode;
+	InputField _passwordHint, _recoverEmail;
 	LinkButton _recover;
 
 	QString _oldError, _newError, _emailError;
@@ -93,7 +93,6 @@ class RecoverBox : public AbstractBox, public RPCSender {
 public:
 
 	RecoverBox(const QString &pattern);
-	void keyPressEvent(QKeyEvent *e);
 	void paintEvent(QPaintEvent *e);
 	void resizeEvent(QResizeEvent *e);
 
@@ -122,8 +121,8 @@ private:
 
 	QString _pattern;
 
-	FlatButton _saveButton, _cancelButton;
-	FlatInput _recoverCode;
+	BoxButton _saveButton, _cancelButton;
+	InputField _recoverCode;
 
 	QString _error;
 };

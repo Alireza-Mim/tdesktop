@@ -22,6 +22,7 @@ Copyright (c) 2014-2015 John Preston, https://desktop.telegram.org
 #include "style.h"
 #include "lang.h"
 
+#include "boxes/aboutbox.h"
 #include "settingswidget.h"
 #include "mainwidget.h"
 #include "application.h"
@@ -199,6 +200,8 @@ SettingsInner::SettingsInner(SettingsWidget *parent) : QWidget(parent),
 	_supportGetRequest(0)
 {
 	if (self()) {
+		connect(App::wnd(), SIGNAL(imageLoaded()), this, SLOT(update()));
+
 		_nameText.setText(st::setNameFont, _nameCache, _textNameOptions);
 		PhotoData *selfPhoto = (self()->photoId && self()->photoId != UnknownPeerPhotoId) ? App::photo(self()->photoId) : 0;
 		if (selfPhoto && selfPhoto->date) _photoLink = TextLinkPtr(new PhotoLink(selfPhoto, self()));
@@ -822,7 +825,7 @@ void SettingsInner::mousePressEvent(QMouseEvent *e) {
 		return;
 	}
 	if (QRect(_uploadPhoto.x() + st::setNameLeft, st::setTop + st::setNameTop, qMin(_uploadPhoto.width() - int(st::setNameLeft), _nameText.maxWidth()), st::setNameFont->height).contains(e->pos())) {
-		App::wnd()->showLayer(new AddContactBox(self()));
+		App::wnd()->showLayer(new EditNameTitleBox(self()));
 	} else if (QRect(_left, st::setTop, st::setPhotoSize, st::setPhotoSize).contains(e->pos())) {
 		if (_photoLink) {
 			App::photo(self()->photoId)->full->load();
@@ -939,7 +942,7 @@ void SettingsInner::offPasswordDone(const MTPBool &result) {
 }
 
 bool SettingsInner::offPasswordFail(const RPCError &error) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	onReloadPassword();
 	return true;
@@ -1191,16 +1194,7 @@ void SettingsInner::onAskQuestionSure() {
 }
 
 void SettingsInner::onTelegramFAQ() {
-	QString url = qsl("https://telegram.org/faq");
-	if (cLang() > languageDefault && cLang() < languageCount) {
-		const char *code = LanguageCodes[cLang()];
-		if (qstr("de") == code || qstr("es") == code || qstr("it") == code || qstr("ko") == code) {
-			url += qsl("/") + code;
-		} else if (qstr("pt_BR") == code) {
-			url += qsl("/br");
-		}
-	}
-	QDesktopServices::openUrl(url);
+	QDesktopServices::openUrl(telegramFaqLink());
 }
 
 void SettingsInner::chooseCustomLang() {
@@ -1208,12 +1202,12 @@ void SettingsInner::chooseCustomLang() {
     QByteArray arr;
     if (filedialogGetOpenFile(file, arr, qsl("Choose language .strings file"), qsl("Language files (*.strings)"))) {
         _testlang = QFileInfo(file).absoluteFilePath();
-		LangLoaderPlain loader(_testlang, LangLoaderRequest(lng_sure_save_language, lng_box_cancel, lng_box_ok));
+		LangLoaderPlain loader(_testlang, LangLoaderRequest(lng_sure_save_language, lng_cancel, lng_box_ok));
         if (loader.errors().isEmpty()) {
             LangLoaderResult result = loader.found();
             QString text = result.value(lng_sure_save_language, langOriginal(lng_sure_save_language)),
 				save = result.value(lng_box_ok, langOriginal(lng_box_ok)),
-				cancel = result.value(lng_box_cancel, langOriginal(lng_box_cancel));
+				cancel = result.value(lng_cancel, langOriginal(lng_cancel));
             ConfirmBox *box = new ConfirmBox(text, save, st::defaultBoxButton, cancel);
             connect(box, SIGNAL(confirmed()), this, SLOT(onSaveTestLang()));
             App::wnd()->showLayer(box);
@@ -1460,6 +1454,7 @@ void SettingsInner::onIncludeMuted() {
 }
 
 void SettingsInner::onWindowsNotifications() {
+	if (cPlatform() != dbipWindows) return;
 	cSetWindowsNotifications(!cWindowsNotifications());
 	App::wnd()->notifyClearFast();
 	cSetCustomNotifies(!cWindowsNotifications());
@@ -1472,12 +1467,12 @@ void SettingsInner::onDesktopNotify() {
 		App::wnd()->notifyClear();
 		_senderName.setDisabled(true);
 		_messagePreview.setDisabled(true);
-		Local::writeUserSettings();
 	} else {
 		_senderName.setDisabled(false);
 		_messagePreview.setDisabled(!_senderName.checked());
-		Local::writeUserSettings();
 	}
+	Local::writeUserSettings();
+	if (App::wnd()) App::wnd()->updateTrayMenu();
 }
 
 void SettingsInner::enableDisplayNotify(bool enable)

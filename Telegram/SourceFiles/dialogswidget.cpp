@@ -48,7 +48,8 @@ _addContactLnk(this, lang(lng_add_contact_button)),
 _cancelSearchInPeer(this, st::btnCancelSearch),
 _overDelete(false),
 _searchInPeer(0) {
-	connect(main, SIGNAL(peerNameChanged(PeerData*,const PeerData::Names&,const PeerData::NameFirstChars&)), this, SLOT(onPeerNameChanged(PeerData*,const PeerData::Names&,const PeerData::NameFirstChars&)));
+	connect(App::wnd(), SIGNAL(imageLoaded()), this, SLOT(update()));
+	connect(main, SIGNAL(peerNameChanged(PeerData*, const PeerData::Names&, const PeerData::NameFirstChars&)), this, SLOT(onPeerNameChanged(PeerData*, const PeerData::Names&, const PeerData::NameFirstChars&)));
 	connect(main, SIGNAL(peerPhotoChanged(PeerData*)), this, SLOT(onPeerPhotoChanged(PeerData*)));
 	connect(main, SIGNAL(dialogRowReplaced(DialogRow*,DialogRow*)), this, SLOT(onDialogRowReplaced(DialogRow*,DialogRow*)));
 	connect(&_addContactLnk, SIGNAL(clicked()), App::wnd(), SLOT(onShowAddContact()));
@@ -438,7 +439,7 @@ void DialogsInner::createDialog(History *history) {
 	if (creating) {
 		refresh();
 	} else if (_state == DefaultState && movedFrom != movedTo) {
-		update(0, qMin(movedFrom, movedTo) * st::dlgHeight, fullWidth(), qAbs(movedFrom - movedTo) * st::dlgHeight);
+		update(0, qMin(movedFrom, movedTo) * st::dlgHeight, fullWidth(), (qAbs(movedFrom - movedTo) + 1) * st::dlgHeight);
 	}
 }
 
@@ -1525,7 +1526,6 @@ DialogsWidget::DialogsWidget(MainWidget *parent) : QWidget(parent)
 	connect(&_addContact, SIGNAL(clicked()), this, SLOT(onAddContact()));
 	connect(&_newGroup, SIGNAL(clicked()), this, SLOT(onNewGroup()));
 	connect(&_cancelSearch, SIGNAL(clicked()), this, SLOT(onCancelSearch()));
-	connect(App::wnd(), SIGNAL(imageLoaded()), this, SLOT(update()));
 
 	_chooseByDragTimer.setSingleShot(true);
 	connect(&_chooseByDragTimer, SIGNAL(timeout()), this, SLOT(onChooseByDrag()));
@@ -1726,7 +1726,7 @@ void DialogsWidget::dialogsReceived(const MTPmessages_Dialogs &dialogs, mtpReque
 }
 
 bool DialogsWidget::dialogsFailed(const RPCError &error, mtpRequestId req) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	LOG(("RPC Error: %1 %2: %3").arg(error.code()).arg(error.type()).arg(error.description()));
 	if (_dialogsRequest == req) {
@@ -1853,7 +1853,7 @@ void DialogsWidget::contactsReceived(const MTPcontacts_Contacts &contacts) {
 }
 
 bool DialogsWidget::contactsFailed(const RPCError &error) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	return true;
 }
@@ -1943,7 +1943,7 @@ void DialogsWidget::peopleReceived(const MTPcontacts_Found &result, mtpRequestId
 }
 
 bool DialogsWidget::searchFailed(const RPCError &error, mtpRequestId req) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	if (_searchRequest == req) {
 		_searchRequest = 0;
@@ -1953,7 +1953,7 @@ bool DialogsWidget::searchFailed(const RPCError &error, mtpRequestId req) {
 }
 
 bool DialogsWidget::peopleFailed(const RPCError &error, mtpRequestId req) {
-	if (error.type().startsWith(qsl("FLOOD_WAIT_"))) return false;
+	if (mtpIsFlood(error)) return false;
 
 	if (_peopleRequest == req) {
 		_peopleRequest = 0;
